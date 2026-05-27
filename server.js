@@ -8,45 +8,44 @@ const MDE_SELLER = process.env.MDE_SELLER || '1191390';
 const PORT       = process.env.PORT       || 3001;
 const AUTH       = 'Basic ' + Buffer.from(MDE_USER + ':' + MDE_PASS).toString('base64');
 const ACCEPT     = 'application/vnd.de.mobile.api+json';
-const BASE       = 'https://services.mobile.de/seller-api/sellers/' + MDE_SELLER;
 
-function mdeRequest(path, method, body) {
+function mdeRequest(path) {
   return new Promise((resolve, reject) => {
-    const parsed = url.parse('https://services.mobile.de' + path);
+    const fullUrl = 'https://services.mobile.de' + path;
+    const parsed = url.parse(fullUrl);
     const options = {
       hostname: parsed.hostname,
       port: 443,
       path: parsed.path,
-      method: method || 'GET',
+      method: 'GET',
       headers: {
         'Authorization': AUTH,
         'Accept': ACCEPT,
-        'Content-Type': ACCEPT
+        'User-Agent': 'AutoTrend24/1.0'
       }
     };
-    if (body) options.headers['Content-Length'] = Buffer.byteLength(body);
     const req = https.request(options, (res) => {
       let data = '';
       res.on('data', c => data += c);
       res.on('end', () => resolve({ status: res.statusCode, body: data, headers: res.headers }));
     });
     req.on('error', reject);
-    if (body) req.write(body);
     req.end();
   });
 }
 
 const server = http.createServer(async (req, res) => {
-  // CORS für alle Origins erlauben
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
   res.setHeader('Content-Type', 'application/json');
 
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
   const parsed = url.parse(req.url, true);
   const path = parsed.pathname;
+
+  console.log('Request:', req.method, path);
 
   // Health check
   if (path === '/' || path === '/health') {
@@ -55,34 +54,62 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // Alle Inserate laden
-  if (req.method === 'GET' && path === '/api/inserate') {
+  // Alle Inserate: GET /api/inserate
+  if (req.method === 'GET' && (path === '/api/inserate' || path === '/api/inserate/')) {
     try {
       const page = parsed.query.page || '1';
       const pageSize = parsed.query.pageSize || '100';
       const r = await mdeRequest('/seller-api/sellers/' + MDE_SELLER + '/ads?page=' + page + '&pageSize=' + pageSize);
+      console.log('Inserate status:', r.status);
       res.writeHead(r.status);
       res.end(r.body);
-    } catch(e) { res.writeHead(500); res.end(JSON.stringify({error: e.message})); }
+    } catch(e) { 
+      console.error('Inserate error:', e.message);
+      res.writeHead(500); 
+      res.end(JSON.stringify({error: e.message})); 
+    }
     return;
   }
 
-  // Bilder für ein Inserat
-  if (req.method === 'GET' && path.startsWith('/api/inserate/') && path.endsWith('/images')) {
+  // Bilder: GET /api/inserate/:id/images
+  const imagesMatch = path.match(/^\/api\/inserate\/(\d+)\/images$/);
+  if (req.method === 'GET' && imagesMatch) {
+    const adId = imagesMatch[1];
     try {
-      const adId = path.split('/')[3];
       const r = await mdeRequest('/seller-api/sellers/' + MDE_SELLER + '/ads/' + adId + '/images');
+      console.log('Images status for', adId, ':', r.status);
       res.writeHead(r.status);
       res.end(r.body);
-    } catch(e) { res.writeHead(500); res.end(JSON.stringify({error: e.message})); }
+    } catch(e) { 
+      console.error('Images error:', e.message);
+      res.writeHead(500); 
+      res.end(JSON.stringify({error: e.message})); 
+    }
     return;
   }
 
+  // Einzelnes Inserat: GET /api/inserate/:id
+  const adMatch = path.match(/^\/api\/inserate\/(\d+)$/);
+  if (req.method === 'GET' && adMatch) {
+    const adId = adMatch[1];
+    try {
+      const r = await mdeRequest('/seller-api/sellers/' + MDE_SELLER + '/ads/' + adId);
+      console.log('Ad status for', adId, ':', r.status);
+      res.writeHead(r.status);
+      res.end(r.body);
+    } catch(e) { 
+      res.writeHead(500); 
+      res.end(JSON.stringify({error: e.message})); 
+    }
+    return;
+  }
+
+  console.log('404:', path);
   res.writeHead(404);
-  res.end(JSON.stringify({ error: 'Not found' }));
+  res.end(JSON.stringify({ error: 'Not found', path: path }));
 });
 
 server.listen(PORT, () => {
-  console.log('AUTOTREND24 mobile.de Proxy läuft auf Port ' + PORT);
-  console.log('Seller: ' + MDE_SELLER + ' | User: ' + MDE_USER);
+  console.log('AUTOTREND24 Proxy auf Port ' + PORT);
+  console.log('Seller:', MDE_SELLER, '| User:', MDE_USER);
 });
