@@ -11,8 +11,7 @@ const ACCEPT     = 'application/vnd.de.mobile.api+json';
 
 function mdeRequest(path) {
   return new Promise((resolve, reject) => {
-    const fullUrl = 'https://services.mobile.de' + path;
-    const parsed = url.parse(fullUrl);
+    const parsed = url.parse('https://services.mobile.de' + path);
     const options = {
       hostname: parsed.hostname,
       port: 443,
@@ -27,7 +26,7 @@ function mdeRequest(path) {
     const req = https.request(options, (res) => {
       let data = '';
       res.on('data', c => data += c);
-      res.on('end', () => resolve({ status: res.statusCode, body: data, headers: res.headers }));
+      res.on('end', () => resolve({ status: res.statusCode, body: data }));
     });
     req.on('error', reject);
     req.end();
@@ -44,63 +43,47 @@ const server = http.createServer(async (req, res) => {
 
   const parsed = url.parse(req.url, true);
   const path = parsed.pathname;
-
   console.log('Request:', req.method, path);
 
-  // Health check
+  // Health
   if (path === '/' || path === '/health') {
     res.writeHead(200);
     res.end(JSON.stringify({ status: 'ok', seller: MDE_SELLER, user: MDE_USER }));
     return;
   }
 
-  // Alle Inserate: GET /api/inserate
+  // GET /api/inserate — alle Inserate
   if (req.method === 'GET' && (path === '/api/inserate' || path === '/api/inserate/')) {
     try {
       const page = parsed.query.page || '1';
       const pageSize = parsed.query.pageSize || '100';
       const r = await mdeRequest('/seller-api/sellers/' + MDE_SELLER + '/ads?page=' + page + '&pageSize=' + pageSize);
-      console.log('Inserate status:', r.status);
       res.writeHead(r.status);
       res.end(r.body);
-    } catch(e) { 
-      console.error('Inserate error:', e.message);
-      res.writeHead(500); 
-      res.end(JSON.stringify({error: e.message})); 
-    }
+    } catch(e) { res.writeHead(500); res.end(JSON.stringify({error: e.message})); }
     return;
   }
 
-  // Bilder: GET /api/inserate/:id/images
+  // GET /api/inserate/:id/images — Bilder
   const imagesMatch = path.match(/^\/api\/inserate\/(\d+)\/images$/);
   if (req.method === 'GET' && imagesMatch) {
-    const adId = imagesMatch[1];
     try {
-      const r = await mdeRequest('/seller-api/sellers/' + MDE_SELLER + '/ads/' + adId + '/images');
-      console.log('Images status for', adId, ':', r.status);
+      const r = await mdeRequest('/seller-api/sellers/' + MDE_SELLER + '/ads/' + imagesMatch[1] + '/images');
       res.writeHead(r.status);
       res.end(r.body);
-    } catch(e) { 
-      console.error('Images error:', e.message);
-      res.writeHead(500); 
-      res.end(JSON.stringify({error: e.message})); 
-    }
+    } catch(e) { res.writeHead(500); res.end(JSON.stringify({error: e.message})); }
     return;
   }
 
-  // Einzelnes Inserat: GET /api/inserate/:id
+  // GET /api/inserate/:id — einzelnes Inserat (für MwSt.-Status)
   const adMatch = path.match(/^\/api\/inserate\/(\d+)$/);
   if (req.method === 'GET' && adMatch) {
-    const adId = adMatch[1];
     try {
-      const r = await mdeRequest('/seller-api/sellers/' + MDE_SELLER + '/ads/' + adId);
-      console.log('Ad status for', adId, ':', r.status);
+      const r = await mdeRequest('/seller-api/sellers/' + MDE_SELLER + '/ads/' + adMatch[1]);
+      console.log('Single ad', adMatch[1], 'status:', r.status);
       res.writeHead(r.status);
       res.end(r.body);
-    } catch(e) { 
-      res.writeHead(500); 
-      res.end(JSON.stringify({error: e.message})); 
-    }
+    } catch(e) { res.writeHead(500); res.end(JSON.stringify({error: e.message})); }
     return;
   }
 
@@ -110,6 +93,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log('AUTOTREND24 Proxy auf Port ' + PORT);
-  console.log('Seller:', MDE_SELLER, '| User:', MDE_USER);
+  console.log('AUTOTREND24 Proxy Port ' + PORT + ' | Seller: ' + MDE_SELLER);
 });
